@@ -1,0 +1,9 @@
+
+langgraph
+langchain-core
+langchain-groq
+qdrant-client
+python-dotenv
+pydantic
+huggingface_hub
+numpy
