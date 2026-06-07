@@ -7,3 +7,8 @@ python-dotenv
 pydantic
 huggingface_hub
 numpy
+voyageai
+llama-parse
+fastapi
+uvicorn[standard]
+python-multipart

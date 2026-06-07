@@ -1,44 +1,62 @@
 import os
-import numpy as np
+import voyageai
 from pydantic import BaseModel, Field
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_groq import ChatGroq
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
-from huggingface_hub import InferenceClient
 from state import GraphState
 
 
 llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
-
 
 qdrant_client = QdrantClient(
     url=os.environ["QDRANT_URL"],
     api_key=os.environ["QDRANT_API_KEY"],
 )
 
-hf_client = InferenceClient(
-    provider="hf-inference",
-    api_key=os.environ["HF_TOKEN"],
-)
+vo = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
 
 COLLECTION_NAME = "crag"
-EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
-VECTOR_SIZE = 1024
+EMBEDDING_MODEL = "voyage-3-lite"
+VECTOR_SIZE = 512
+SCORE_THRESHOLD = 0.45
 
 
-_existing = [c.name for c in qdrant_client.get_collections().collections]
-if COLLECTION_NAME not in _existing:
-    qdrant_client.create_collection(
-        collection_name=COLLECTION_NAME,
-        vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-    )
-    print(f"Created Qdrant collection: {COLLECTION_NAME}")
+def _ensure_collection() -> None:
+    """Create or migrate the Qdrant collection. Called lazily on first retrieve."""
+    try:
+        if qdrant_client.collection_exists(COLLECTION_NAME):
+            info = qdrant_client.get_collection(COLLECTION_NAME)
+            existing_size = info.config.params.vectors.size
+            if existing_size != VECTOR_SIZE:
+                print(f"Vector size changed ({existing_size}→{VECTOR_SIZE}). Recreating collection...")
+                qdrant_client.delete_collection(COLLECTION_NAME)
+                qdrant_client.create_collection(
+                    collection_name=COLLECTION_NAME,
+                    vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+                )
+        else:
+            qdrant_client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            )
+            print(f"Created Qdrant collection: {COLLECTION_NAME}")
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot connect to Qdrant at {os.environ.get('QDRANT_URL')}.\n"
+            "Check that your cluster is active on cloud.qdrant.io and "
+            "QDRANT_URL / QDRANT_API_KEY in .env are correct.\n"
+            f"Original error: {e}"
+        ) from e
 
 
-def get_embedding(text: str) -> list[float]:
-    result = hf_client.feature_extraction(text, model=EMBEDDING_MODEL)
-    return np.array(result).flatten().tolist()
+_collection_ready = False
+
+
+def get_embedding(text: str, is_query: bool = False) -> list[float]:
+    input_type = "query" if is_query else "document"
+    return vo.embed([text], model=EMBEDDING_MODEL, input_type=input_type).embeddings[0]
 
 class GradeDocuments(BaseModel):
     """Binary score for relevance check on retrieved documents."""
@@ -75,13 +93,18 @@ generator = gen_prompt | llm
 
 def retrieve(state: GraphState):
     print("---NODE: RETRIEVING DOCUMENTS---")
-    question = state["question"]
+    global _collection_ready
+    if not _collection_ready:
+        _ensure_collection()
+        _collection_ready = True
 
-    query_vector = get_embedding(question)
+    question = state["question"]
+    query_vector = get_embedding(question, is_query=True)
     hits = qdrant_client.search(
         collection_name=COLLECTION_NAME,
         query_vector=query_vector,
         limit=5,
+        score_threshold=SCORE_THRESHOLD,
     )
     retrieved_chunks = [hit.payload.get("text", "") for hit in hits]
 
