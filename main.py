@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-# Load environment variables before importing graph elements
+
 load_dotenv()
 
 from graph import app
@@ -14,11 +14,11 @@ if __name__ == "__main__":
     config = {"recursion_limit": 20}
     
     for output in app.stream(inputs, config=config):
-        # Streams the execution stage by stage
+
         for key, value in output.items():
             print(f"\nFinished processing Node: '{key}'")
             
     print("\n--- FINAL ANSWER ---")
     final_state = app.get_state(config)
-    # The last node updates the 'generation' key
+
     print(output[key]["generation"])

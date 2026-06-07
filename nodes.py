@@ -8,10 +8,10 @@ from qdrant_client.models import Distance, VectorParams
 from huggingface_hub import InferenceClient
 from state import GraphState
 
-# Initialize Groq LLM
+
 llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0)
 
-# Initialize Qdrant and HuggingFace clients
+
 qdrant_client = QdrantClient(
     url=os.environ["QDRANT_URL"],
     api_key=os.environ["QDRANT_API_KEY"],
@@ -26,7 +26,7 @@ COLLECTION_NAME = "crag"
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
 VECTOR_SIZE = 1024
 
-# Create the collection if it doesn't already exist
+
 _existing = [c.name for c in qdrant_client.get_collections().collections]
 if COLLECTION_NAME not in _existing:
     qdrant_client.create_collection(
@@ -40,7 +40,6 @@ def get_embedding(text: str) -> list[float]:
     result = hf_client.feature_extraction(text, model=EMBEDDING_MODEL)
     return np.array(result).flatten().tolist()
 
-# --- 1. GRADER SETUP ---
 class GradeDocuments(BaseModel):
     """Binary score for relevance check on retrieved documents."""
     binary_score: str = Field(description="Documents are relevant to the question, 'yes' or 'no'")
@@ -55,7 +54,7 @@ grader_prompt = ChatPromptTemplate.from_messages([
 ])
 retrieval_grader = grader_prompt | structured_llm_grader
 
-# --- 2. REWRITER SETUP ---
+
 rewrite_prompt = ChatPromptTemplate.from_messages([
     ("system", "You are a query rewriter. Your task is to optimize a user query to make it better suited for vector database search.\n"
                "Analyze the original query and output an improved, semantically rich version. Return ONLY the rewritten query text."),
@@ -63,7 +62,7 @@ rewrite_prompt = ChatPromptTemplate.from_messages([
 ])
 query_rewriter = rewrite_prompt | llm
 
-# --- 3. GENERATOR SETUP ---
+
 gen_prompt = ChatPromptTemplate.from_messages([
     ("system", "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question.\n"
                "If you don't know the answer, say that you don't know.\n\nContext:\n{context}"),
@@ -72,7 +71,7 @@ gen_prompt = ChatPromptTemplate.from_messages([
 generator = gen_prompt | llm
 
 
-# --- NODE FUNCTIONS ---
+
 
 def retrieve(state: GraphState):
     print("---NODE: RETRIEVING DOCUMENTS---")
