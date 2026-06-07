@@ -100,13 +100,13 @@ def retrieve(state: GraphState):
 
     question = state["question"]
     query_vector = get_embedding(question, is_query=True)
-    hits = qdrant_client.search(
+    results = qdrant_client.query_points(
         collection_name=COLLECTION_NAME,
-        query_vector=query_vector,
+        query=query_vector,
         limit=5,
         score_threshold=SCORE_THRESHOLD,
     )
-    retrieved_chunks = [hit.payload.get("text", "") for hit in hits]
+    retrieved_chunks = [hit.payload.get("text", "") for hit in results.points]
 
     return {"documents": retrieved_chunks, "search_count": state.get("search_count", 0)}
 
@@ -140,6 +140,9 @@ def generate(state: GraphState):
     print("---NODE: GENERATING ANSWER---")
     question = state["question"]
     documents = state["documents"]
+    
+    print("\nQuestion : ", question)
+    print("\n\nDocuments : ", documents)
     
     context = "\n\n".join(documents) if documents else "No relevant context found."
     response = generator.invoke({"context": context, "question": question})
