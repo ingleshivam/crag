@@ -9,3 +9,5 @@ class GraphState(TypedDict):
     search_count: int
     chat_history: List[dict]
     document_filter: List[str]
+    faithfulness_attempts: int  # tracks how many times faithfulness was checked
+    faithful: bool              # set by check_faithfulness node

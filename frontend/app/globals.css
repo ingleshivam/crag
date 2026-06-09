@@ -1,3 +1,26 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* CSS variables used inside SVG elements (Tailwind dark: can't reach those) */
+:root {
+  --pipe-edge: #d1d5db;
+  --pipe-label: #9ca3af;
+  --pipe-node-bg: #f9fafb;
+}
+.dark {
+  --pipe-edge: #374151;
+  --pipe-label: #6b7280;
+  --pipe-node-bg: #111827;
+}
+
+/* Smooth theme transition */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}
+/* Except animations */
+[class*="animate-"], [class*="transition-"] {
+  transition: none;
+}

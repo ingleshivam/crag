@@ -21,3 +21,13 @@ export interface ChatHistoryEntry {
   question: string;
   answer: string;
 }
+
+export interface Session {
+  id: string;
+  title: string;
+  messages: Message[];
+  history: ChatHistoryEntry[];
+  documentFilter: string[];
+  createdAt: number;
+  updatedAt: number;
+}

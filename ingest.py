@@ -8,14 +8,15 @@ from qdrant_client.models import (
     Distance, VectorParams, SparseVectorParams, SparseVector, PointStruct,
     PayloadSchemaType,
 )
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 load_dotenv()
 
 COLLECTION_NAME = "crag"
 EMBEDDING_MODEL = "voyage-3-lite"
 VECTOR_SIZE = 512
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = 1200   # larger chunks keep definitions/formulas intact
+CHUNK_OVERLAP = 200
 EMBED_BATCH = 128
 UPSERT_BATCH = 100
 DOCS_DIR = Path("docs")
@@ -35,15 +36,54 @@ except Exception:
     _sparse_model = None
     HYBRID = False
 
+# pymupdf4llm preserves LaTeX math blocks, tables, and headings from PDFs
+try:
+    import pymupdf4llm
+    PYMUPDF4LLM = True
+except ImportError:
+    PYMUPDF4LLM = False
+
+# Math/structure-aware separators: keep Definition/Theorem/Equation blocks together
+_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
+    separators=[
+        "\n\n\n",
+        "\n\n",
+        "\nDefinition ", "\nTheorem ", "\nLemma ", "\nProposition ",
+        "\nEquation ", "\nProof ", "\nRemark ",
+        "\n",
+        " ",
+        "",
+    ],
+)
+
 
 def chunk_text(text: str) -> list[str]:
-    chunks, start = [], 0
-    while start < len(text):
-        chunk = text[start : start + CHUNK_SIZE].strip()
-        if chunk:
-            chunks.append(chunk)
-        start += CHUNK_SIZE - CHUNK_OVERLAP
-    return chunks
+    return _splitter.split_text(text)
+
+
+def load_pdf(path: Path) -> str:
+    """Convert PDF to markdown, preserving math notation and tables."""
+    if PYMUPDF4LLM:
+        return pymupdf4llm.to_markdown(str(path))
+    # Fallback: plain text extraction via PyMuPDF (fitz)
+    try:
+        import fitz
+        doc = fitz.open(str(path))
+        return "\n\n".join(page.get_text() for page in doc)
+    except ImportError:
+        raise RuntimeError(
+            "Install pymupdf4llm for PDF support: pip install pymupdf4llm"
+        )
+
+
+def load_file(path: Path) -> str:
+    """Load any supported file to a plain string."""
+    suffix = path.suffix.lower()
+    if suffix == ".pdf":
+        return load_pdf(path)
+    return path.read_text(encoding="utf-8")
 
 
 def embed_dense(texts: list[str]) -> list[list[float]]:
@@ -116,20 +156,30 @@ def _build_points(
 def ingest(docs_dir: Path = DOCS_DIR) -> None:
     _ensure_collection()
 
-    files = list(docs_dir.glob("**/*.md")) + list(docs_dir.glob("**/*.txt"))
+    supported = (".md", ".txt", ".pdf")
+    files = [f for f in docs_dir.glob("**/*") if f.suffix.lower() in supported]
     if not files:
-        print(f"No .md or .txt files found in '{docs_dir}'. Add documents and re-run.")
+        print(f"No supported files ({', '.join(supported)}) found in '{docs_dir}'.")
         return
 
     all_chunks: list[str] = []
     all_sources: list[str] = []
     for file in files:
-        print(f"Chunking: {file.name}")
-        chunks = chunk_text(file.read_text(encoding="utf-8"))
-        all_chunks.extend(chunks)
-        all_sources.extend([file.name] * len(chunks))
+        print(f"Loading: {file.name}")
+        try:
+            text = load_file(file)
+            chunks = chunk_text(text)
+            all_chunks.extend(chunks)
+            all_sources.extend([file.name] * len(chunks))
+            print(f"  → {len(chunks)} chunks")
+        except Exception as e:
+            print(f"  ! Skipping {file.name}: {e}")
 
-    print(f"Embedding {len(all_chunks)} chunks (dense + sparse)...")
+    if not all_chunks:
+        print("No chunks to ingest.")
+        return
+
+    print(f"\nEmbedding {len(all_chunks)} chunks (dense + sparse)...")
     dense_vecs = embed_dense(all_chunks)
     sparse_vecs = embed_sparse(all_chunks)
     points = _build_points(all_chunks, all_sources, dense_vecs, sparse_vecs)
@@ -143,10 +193,11 @@ def ingest(docs_dir: Path = DOCS_DIR) -> None:
 
 
 def ingest_file(file_path: Path) -> int:
-    """Ingest a single markdown/text file. Returns number of chunks uploaded."""
+    """Ingest a single file (PDF, markdown, or text). Returns number of chunks uploaded."""
     _ensure_collection()
 
-    chunks = chunk_text(file_path.read_text(encoding="utf-8"))
+    text = load_file(file_path)
+    chunks = chunk_text(text)
     dense_vecs = embed_dense(chunks)
     sparse_vecs = embed_sparse(chunks)
     points = _build_points(chunks, [file_path.name] * len(chunks), dense_vecs, sparse_vecs)

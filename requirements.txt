@@ -1,6 +1,7 @@
 langgraph
 langchain-core
 langchain-groq
+langchain-text-splitters
 langsmith
 qdrant-client
 fastembed>=0.3.0
@@ -10,6 +11,7 @@ huggingface_hub
 numpy
 voyageai
 llama-parse
+pymupdf4llm
 fastapi
 uvicorn[standard]
 python-multipart

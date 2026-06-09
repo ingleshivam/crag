@@ -8,8 +8,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="bg-gray-950 text-gray-100 min-h-screen antialiased">{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Runs synchronously before paint — prevents flash of wrong theme */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('crag-theme')||'dark';document.documentElement.classList.toggle('dark',t==='dark')}catch(e){document.documentElement.classList.add('dark')}`,
+          }}
+        />
+      </head>
+      <body className="bg-slate-50 dark:bg-[#09090f] text-gray-900 dark:text-gray-100 min-h-screen antialiased">
+        {children}
+      </body>
     </html>
   );
 }

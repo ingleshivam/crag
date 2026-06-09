@@ -123,13 +123,60 @@ query_rewriter = rewrite_prompt | llm
 gen_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are an assistant for question-answering tasks. "
-     "Use the retrieved context to answer the question concisely and accurately. "
+     "Use ONLY the retrieved context below to answer the question.\n\n"
+     "IMPORTANT: If the context contains mathematical formulas, copy them VERBATIM — "
+     "do NOT simplify, merge, or rewrite them. Preserve every summation sign, variable, "
+     "and subscript exactly as they appear in the source.\n\n"
      "If you don't know the answer, say so. Use markdown formatting where helpful.\n\n"
      "{history}"
      "Context:\n{context}"),
     ("human", "{question}"),
 ])
 generator = gen_prompt | llm
+
+# Stricter re-generation prompt used after a faithfulness failure
+strict_gen_prompt = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are a precise assistant. Answer ONLY from the provided context.\n\n"
+     "CRITICAL RULES — follow these exactly:\n"
+     "1. Mathematical formulas: copy them CHARACTER-FOR-CHARACTER from the context. "
+     "If the source has two nested sigma (∑) signs, your answer must have two nested sigma signs.\n"
+     "2. Do not reconstruct or rephrase any formula — locate it in the context and quote it directly.\n"
+     "3. Numbers, variable names, subscripts: copy exactly as they appear.\n"
+     "4. If the context does not contain the information, say so explicitly.\n\n"
+     "{history}"
+     "Context:\n{context}"),
+    ("human", "{question}"),
+])
+strict_generator = strict_gen_prompt | llm
+
+# --- Faithfulness Grader ---
+class GradeFaithfulness(BaseModel):
+    """Check whether the generated answer is faithful to the source context."""
+    faithful: bool = Field(
+        description="True if the answer accurately represents the source context, "
+                    "False if it contradicts, fabricates, or misrepresents information."
+    )
+    issue: str = Field(
+        description="Specific description of the faithfulness problem. Empty string if faithful."
+    )
+
+faithfulness_prompt = ChatPromptTemplate.from_messages([
+    ("system",
+     "You are a faithfulness checker. Determine whether the generated answer is "
+     "grounded in and consistent with the provided source context.\n\n"
+     "Pay special attention to:\n"
+     "- Mathematical formulas: verify that summation structure, variable names, "
+     "and subscripts match the source exactly. A single nested ∑ vs double nested ∑∑ is a failure.\n"
+     "- Numerical values: weights, thresholds, and constants must match.\n"
+     "- No information should be added that is not present in the context.\n\n"
+     "Return faithful=true only if the answer is fully consistent with the source."),
+    ("human",
+     "Source context:\n{context}\n\n"
+     "Generated answer:\n{generation}\n\n"
+     "Is the answer faithful to the source?"),
+])
+faithfulness_grader = faithfulness_prompt | llm.with_structured_output(GradeFaithfulness)
 
 
 # --- Node Functions ---
@@ -238,6 +285,7 @@ def generate(state: GraphState):
     question = state["question"]
     documents = state["documents"]
     chat_history = state.get("chat_history") or []
+    faithfulness_attempts = state.get("faithfulness_attempts", 0)
 
     # Format last 3 conversation turns for context
     history_text = ""
@@ -250,10 +298,38 @@ def generate(state: GraphState):
         history_text = f"Previous conversation:\n{history_text}\n"
 
     context = "\n\n".join(documents) if documents else "No relevant context found."
-    response = generator.invoke({
+
+    # Use the stricter prompt if this is a faithfulness re-attempt
+    chain = strict_generator if faithfulness_attempts > 0 else generator
+    if faithfulness_attempts > 0:
+        print("   - Using strict prompt (faithfulness re-attempt)")
+
+    response = chain.invoke({
         "context": context,
         "question": question,
         "history": history_text,
     })
 
     return {"generation": response.content}
+
+
+def check_faithfulness(state: GraphState):
+    print("---NODE: CHECKING FAITHFULNESS---")
+    generation = state.get("generation", "")
+    documents = state.get("documents", [])
+    attempts = state.get("faithfulness_attempts", 0)
+
+    if not documents or not generation:
+        return {"faithfulness_attempts": attempts + 1, "faithful": True}
+
+    context = "\n\n".join(documents)
+    try:
+        result = faithfulness_grader.invoke({"context": context, "generation": generation})
+        if result.faithful:
+            print("   - PASS: answer is faithful to source")
+        else:
+            print(f"   - FAIL: {result.issue}")
+        return {"faithfulness_attempts": attempts + 1, "faithful": result.faithful}
+    except Exception as e:
+        print(f"   - Faithfulness check skipped ({e}), assuming faithful")
+        return {"faithfulness_attempts": attempts + 1, "faithful": True}
