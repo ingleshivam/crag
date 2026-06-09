@@ -1,10 +1,20 @@
-import { StreamEvent } from "./types";
+import { StreamEvent, ChatHistoryEntry } from "./types";
 
-export async function* streamQuery(question: string): AsyncGenerator<StreamEvent> {
-  const response = await fetch("http://localhost:8000/api/query", {
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+export async function* streamQuery(
+  question: string,
+  chatHistory: ChatHistoryEntry[],
+  documentFilter: string[]
+): AsyncGenerator<StreamEvent> {
+  const response = await fetch(`${API_BASE}/api/query`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      chat_history: chatHistory,
+      document_filter: documentFilter,
+    }),
   });
 
   if (!response.body) throw new Error("No response body from server");
@@ -16,11 +26,9 @@ export async function* streamQuery(question: string): AsyncGenerator<StreamEvent
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
-
     for (const line of lines) {
       if (line.startsWith("data: ")) {
         try {
@@ -30,5 +38,15 @@ export async function* streamQuery(question: string): AsyncGenerator<StreamEvent
         }
       }
     }
+  }
+}
+
+export async function fetchDocuments(): Promise<string[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/documents`);
+    const data = await res.json();
+    return (data.documents as string[]) ?? [];
+  } catch {
+    return [];
   }
 }

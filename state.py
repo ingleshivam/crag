@@ -1,10 +1,11 @@
 from typing import List, TypedDict
 
+
 class GraphState(TypedDict):
-    """
-    Represents the state of our graph.
-    """
-    question: str          
-    documents: List[str]   
-    generation: str        
-    search_count: int      
+    question: str
+    documents: List[str]
+    sources: List[str]
+    generation: str
+    search_count: int
+    chat_history: List[dict]
+    document_filter: List[str]

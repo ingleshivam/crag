@@ -2,6 +2,7 @@ export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  sources?: string[];
 }
 
 export interface PipelineStep {
@@ -10,6 +11,13 @@ export interface PipelineStep {
 }
 
 export interface StreamEvent {
-  node: string;
-  output: Record<string, unknown>;
+  type: "node" | "token" | "done";
+  node?: string;
+  output?: Record<string, unknown>;
+  token?: string;
+}
+
+export interface ChatHistoryEntry {
+  question: string;
+  answer: string;
 }

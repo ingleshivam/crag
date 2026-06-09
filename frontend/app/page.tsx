@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import { Message, PipelineStep } from "@/lib/types";
-import { streamQuery } from "@/lib/api";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { Message, PipelineStep, ChatHistoryEntry } from "@/lib/types";
+import { streamQuery, fetchDocuments } from "@/lib/api";
 import ChatPanel from "@/components/ChatPanel";
 import PipelineTrace from "@/components/PipelineTrace";
 import ChunksPanel from "@/components/ChunksPanel";
 import DocumentUpload from "@/components/DocumentUpload";
+import DocumentFilter from "@/components/DocumentFilter";
+
+const MESSAGES_KEY = "crag_messages";
+const HISTORY_KEY = "crag_history";
 
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -14,66 +18,144 @@ export default function Home() {
   const [chunks, setChunks] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [rightTab, setRightTab] = useState<"trace" | "docs">("trace");
+  const [documents, setDocuments] = useState<string[]>([]);
+  const [documentFilter, setDocumentFilter] = useState<string[]>([]);
+  const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([]);
   const idRef = useRef(0);
 
-  const handleSubmit = useCallback(async (question: string) => {
-    const userMsg: Message = { id: String(idRef.current++), role: "user", content: question };
-    setMessages((prev) => [...prev, userMsg]);
+  // Load persisted messages + history, then fetch document list
+  useEffect(() => {
+    try {
+      const savedMessages = localStorage.getItem(MESSAGES_KEY);
+      const savedHistory = localStorage.getItem(HISTORY_KEY);
+      if (savedMessages) setMessages(JSON.parse(savedMessages));
+      if (savedHistory) setChatHistory(JSON.parse(savedHistory));
+    } catch {
+      // ignore parse errors
+    }
+    fetchDocuments().then(setDocuments);
+  }, []);
+
+  // Persist messages whenever they change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(MESSAGES_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
+
+  const refreshDocuments = useCallback(() => {
+    fetchDocuments().then(setDocuments);
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    setMessages([]);
+    setChatHistory([]);
     setSteps([]);
     setChunks([]);
-    setLoading(true);
+    localStorage.removeItem(MESSAGES_KEY);
+    localStorage.removeItem(HISTORY_KEY);
+  }, []);
 
-    const assistantId = String(idRef.current++);
-    setMessages((prev) => [...prev, { id: assistantId, role: "assistant", content: "" }]);
+  const handleSubmit = useCallback(
+    async (question: string) => {
+      const userMsg: Message = {
+        id: String(idRef.current++),
+        role: "user",
+        content: question,
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setSteps([]);
+      setChunks([]);
+      setLoading(true);
 
-    try {
-      for await (const event of streamQuery(question)) {
-        if (event.node === "__done__") break;
+      const assistantId = String(idRef.current++);
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantId, role: "assistant", content: "", sources: [] },
+      ]);
 
-        setSteps((prev) => [...prev, { node: event.node, output: event.output }]);
+      let finalAnswer = "";
+      let currentSources: string[] = [];
 
-        if (event.node === "retrieve") {
-          const docs = event.output.documents as string[] | undefined;
-          if (docs) setChunks(docs);
-        }
+      try {
+        for await (const event of streamQuery(question, chatHistory, documentFilter)) {
+          if (event.type === "done") break;
 
-        if (event.node === "generate") {
-          const answer = event.output.generation as string | undefined;
-          if (answer) {
+          if (event.type === "token" && event.token) {
+            finalAnswer += event.token;
             setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: answer } : m))
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: finalAnswer } : m
+              )
             );
           }
+
+          if (event.type === "node" && event.node && event.output) {
+            setSteps((prev) => [...prev, { node: event.node!, output: event.output! }]);
+
+            if (event.node === "retrieve") {
+              const docs = event.output.documents as string[] | undefined;
+              const srcs = event.output.sources as string[] | undefined;
+              if (docs) setChunks(docs);
+              if (srcs) currentSources = srcs;
+            }
+          }
         }
+
+        // Attach sources to the final assistant message
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, sources: currentSources } : m
+          )
+        );
+
+        // Save Q&A pair to conversation memory
+        if (finalAnswer) {
+          setChatHistory((prev) => {
+            const updated = [...prev, { question, answer: finalAnswer }];
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+            return updated;
+          });
+        }
+      } catch {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: "Error: could not reach the CRAG backend." }
+              : m
+          )
+        );
+      } finally {
+        setLoading(false);
       }
-    } catch (err) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: "Error: could not reach the CRAG backend." }
-            : m
-        )
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [chatHistory, documentFilter]
+  );
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Left — Chat (60%) */}
+      {/* Left — Chat */}
       <div className="flex-1 flex flex-col border-r border-gray-800 min-w-0">
         <header className="px-6 py-4 border-b border-gray-800 flex items-center gap-3 flex-shrink-0">
           <div className="w-2 h-2 rounded-full bg-emerald-500" />
           <h1 className="font-semibold text-base tracking-tight">CRAG</h1>
           <span className="text-xs text-gray-500">Corrective RAG</span>
         </header>
-        <ChatPanel messages={messages} loading={loading} onSubmit={handleSubmit} />
+        <DocumentFilter
+          documents={documents}
+          selected={documentFilter}
+          onChange={setDocumentFilter}
+        />
+        <ChatPanel
+          messages={messages}
+          loading={loading}
+          onSubmit={handleSubmit}
+          onClearHistory={clearHistory}
+        />
       </div>
 
-      {/* Right — Tabbed panel (40%) */}
+      {/* Right — Tabbed panel */}
       <div className="w-[40%] flex flex-col overflow-hidden flex-shrink-0">
-        {/* Tab bar */}
         <div className="flex border-b border-gray-800 flex-shrink-0">
           {(["trace", "docs"] as const).map((tab) => (
             <button
@@ -96,7 +178,7 @@ export default function Home() {
             <ChunksPanel chunks={chunks} />
           </>
         ) : (
-          <DocumentUpload />
+          <DocumentUpload onUploadComplete={refreshDocuments} />
         )}
       </div>
     </div>

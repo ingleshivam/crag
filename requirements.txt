@@ -1,8 +1,9 @@
-
 langgraph
 langchain-core
 langchain-groq
+langsmith
 qdrant-client
+fastembed>=0.3.0
 python-dotenv
 pydantic
 huggingface_hub

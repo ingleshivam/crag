@@ -42,7 +42,11 @@ async function* streamUpload(file: File): AsyncGenerator<UploadEvent> {
   }
 }
 
-export default function DocumentUpload() {
+interface Props {
+  onUploadComplete?: () => void;
+}
+
+export default function DocumentUpload({ onUploadComplete }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
@@ -68,7 +72,8 @@ export default function DocumentUpload() {
       for await (const event of streamUpload(file)) {
         setStatus(event.status as Status);
         setMessage(event.message);
-        if (event.status === "done" || event.status === "error") break;
+        if (event.status === "done") { onUploadComplete?.(); break; }
+        if (event.status === "error") break;
       }
     } catch {
       setStatus("error");
@@ -146,7 +151,7 @@ export default function DocumentUpload() {
       {/* Progress steps */}
       {status !== "idle" && (
         <ol className="flex flex-col gap-1.5 text-xs">
-          {(["saving", "parsing", "ingesting", "done"] as const).map((step, i) => {
+          {(["saving", "parsing", "ingesting", "done"] as const).map((step) => {
             const stepOrder = ["saving", "parsing", "ingesting", "done"];
             const currentIdx = stepOrder.indexOf(status === "error" ? "saving" : status);
             const stepIdx = stepOrder.indexOf(step);

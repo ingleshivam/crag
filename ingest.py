@@ -4,7 +4,10 @@ import voyageai
 from pathlib import Path
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
+from qdrant_client.models import (
+    Distance, VectorParams, SparseVectorParams, SparseVector, PointStruct,
+    PayloadSchemaType,
+)
 
 load_dotenv()
 
@@ -13,8 +16,8 @@ EMBEDDING_MODEL = "voyage-3-lite"
 VECTOR_SIZE = 512
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
-EMBED_BATCH = 128   # Voyage AI max texts per request
-UPSERT_BATCH = 100  # Qdrant upsert batch size
+EMBED_BATCH = 128
+UPSERT_BATCH = 100
 DOCS_DIR = Path("docs")
 
 qdrant_client = QdrantClient(
@@ -23,6 +26,14 @@ qdrant_client = QdrantClient(
 )
 
 vo = voyageai.Client(api_key=os.environ["VOYAGE_API_KEY"])
+
+try:
+    from fastembed import SparseTextEmbedding as _SparseModel
+    _sparse_model = _SparseModel(model_name="Qdrant/bm25")
+    HYBRID = True
+except Exception:
+    _sparse_model = None
+    HYBRID = False
 
 
 def chunk_text(text: str) -> list[str]:
@@ -35,8 +46,7 @@ def chunk_text(text: str) -> list[str]:
     return chunks
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed a list of document texts in batches."""
+def embed_dense(texts: list[str]) -> list[list[float]]:
     embeddings = []
     for i in range(0, len(texts), EMBED_BATCH):
         result = vo.embed(texts[i : i + EMBED_BATCH], model=EMBEDDING_MODEL, input_type="document")
@@ -44,22 +54,63 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     return embeddings
 
 
+def embed_sparse(texts: list[str]) -> list[SparseVector | None]:
+    if not HYBRID or not _sparse_model:
+        return [None] * len(texts)
+    results = list(_sparse_model.embed(texts))
+    return [SparseVector(indices=r.indices.tolist(), values=r.values.tolist()) for r in results]
+
+
 def _ensure_collection() -> None:
+    needs_create = True
     if qdrant_client.collection_exists(COLLECTION_NAME):
-        existing_size = qdrant_client.get_collection(COLLECTION_NAME).config.params.vectors.size
-        if existing_size != VECTOR_SIZE:
-            print(f"Vector dimension mismatch ({existing_size}→{VECTOR_SIZE}). Recreating collection...")
+        info = qdrant_client.get_collection(COLLECTION_NAME)
+        vectors = info.config.params.vectors
+        sparse = info.config.params.sparse_vectors or {}
+        try:
+            if isinstance(vectors, dict) and "dense" in vectors:
+                ok_size = vectors["dense"].size == VECTOR_SIZE
+                ok_sparse = (not HYBRID) or ("sparse" in sparse)
+                if ok_size and ok_sparse:
+                    needs_create = False
+        except (AttributeError, KeyError):
+            pass
+        if needs_create:
+            print("Recreating collection with updated vector config...")
             qdrant_client.delete_collection(COLLECTION_NAME)
-            qdrant_client.create_collection(
-                collection_name=COLLECTION_NAME,
-                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-            )
-    else:
+
+    if needs_create:
         qdrant_client.create_collection(
             collection_name=COLLECTION_NAME,
-            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+            vectors_config={"dense": VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)},
+            sparse_vectors_config={"sparse": SparseVectorParams()} if HYBRID else None,
         )
         print(f"Created Qdrant collection: {COLLECTION_NAME}")
+
+    qdrant_client.create_payload_index(
+        collection_name=COLLECTION_NAME,
+        field_name="source",
+        field_schema=PayloadSchemaType.KEYWORD,
+    )
+
+
+def _build_points(
+    chunks: list[str],
+    sources: list[str],
+    dense_vecs: list[list[float]],
+    sparse_vecs: list[SparseVector | None],
+) -> list[PointStruct]:
+    points = []
+    for txt, src, dvec, svec in zip(chunks, sources, dense_vecs, sparse_vecs):
+        vec: dict = {"dense": dvec}
+        if svec is not None:
+            vec["sparse"] = svec
+        points.append(PointStruct(
+            id=str(uuid.uuid4()),
+            vector=vec,
+            payload={"text": txt, "source": src},
+        ))
+    return points
 
 
 def ingest(docs_dir: Path = DOCS_DIR) -> None:
@@ -78,15 +129,12 @@ def ingest(docs_dir: Path = DOCS_DIR) -> None:
         all_chunks.extend(chunks)
         all_sources.extend([file.name] * len(chunks))
 
-    print(f"Embedding {len(all_chunks)} chunks via Voyage AI...")
-    vectors = embed_texts(all_chunks)
+    print(f"Embedding {len(all_chunks)} chunks (dense + sparse)...")
+    dense_vecs = embed_dense(all_chunks)
+    sparse_vecs = embed_sparse(all_chunks)
+    points = _build_points(all_chunks, all_sources, dense_vecs, sparse_vecs)
 
-    points = [
-        PointStruct(id=str(uuid.uuid4()), vector=vec, payload={"text": txt, "source": src})
-        for txt, src, vec in zip(all_chunks, all_sources, vectors)
-    ]
-
-    print(f"Uploading to Qdrant collection '{COLLECTION_NAME}'...")
+    print(f"Uploading to '{COLLECTION_NAME}'...")
     for i in range(0, len(points), UPSERT_BATCH):
         qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points[i : i + UPSERT_BATCH])
         print(f"  {min(i + UPSERT_BATCH, len(points))}/{len(points)} uploaded")
@@ -99,12 +147,9 @@ def ingest_file(file_path: Path) -> int:
     _ensure_collection()
 
     chunks = chunk_text(file_path.read_text(encoding="utf-8"))
-    vectors = embed_texts(chunks)
-
-    points = [
-        PointStruct(id=str(uuid.uuid4()), vector=vec, payload={"text": txt, "source": file_path.name})
-        for txt, vec in zip(chunks, vectors)
-    ]
+    dense_vecs = embed_dense(chunks)
+    sparse_vecs = embed_sparse(chunks)
+    points = _build_points(chunks, [file_path.name] * len(chunks), dense_vecs, sparse_vecs)
 
     for i in range(0, len(points), UPSERT_BATCH):
         qdrant_client.upsert(collection_name=COLLECTION_NAME, points=points[i : i + UPSERT_BATCH])
