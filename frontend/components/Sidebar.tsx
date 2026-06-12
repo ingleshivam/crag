@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { useAuth, UserButton } from "@clerk/nextjs";
 import ThemeToggle from "./ThemeToggle";
 import SessionList from "./SessionList";
 import { Session } from "@/lib/types";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { API_BASE, authHeaders } from "@/lib/api";
 
 interface Props {
   sessions: Session[];
@@ -103,8 +103,13 @@ export default function Sidebar({
           <QuickUpload onComplete={onUploadComplete} />
         </Section>
 
-        {/* spacer */}
         <div className="flex-1" />
+      </div>
+
+      {/* User account footer */}
+      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 flex items-center gap-3 flex-shrink-0">
+        <UserButton afterSignOutUrl="/login" />
+        <span className="text-xs text-gray-500 dark:text-gray-400 truncate">Account</span>
       </div>
     </div>
   );
@@ -181,15 +186,21 @@ function DocFilter({
 }
 
 function QuickUpload({ onComplete }: { onComplete: () => void }) {
+  const { getToken } = useAuth();
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">("idle");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = async (file: File) => {
     setStatus("uploading");
+    const token = await getToken();
     const body = new FormData();
     body.append("file", file);
     try {
-      const resp = await fetch(`${API_BASE}/api/upload`, { method: "POST", body });
+      const resp = await fetch(`${API_BASE}/api/upload`, {
+        method: "POST",
+        headers: authHeaders(token),
+        body,
+      });
       if (!resp.body) { setStatus("error"); return; }
       const reader = resp.body.getReader();
       const dec = new TextDecoder();

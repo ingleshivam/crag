@@ -1,18 +1,20 @@
 import { Session } from "./types";
 
-const KEY = "crag_sessions";
+function storageKey(userId: string): string {
+  return `crag_sessions_${userId}`;
+}
 
-export function loadSessions(): Session[] {
+export function loadSessions(userId: string): Session[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? "[]");
+    return JSON.parse(localStorage.getItem(storageKey(userId)) ?? "[]");
   } catch {
     return [];
   }
 }
 
-export function saveSessions(sessions: Session[]): void {
-  localStorage.setItem(KEY, JSON.stringify(sessions));
+export function saveSessions(sessions: Session[], userId: string): void {
+  localStorage.setItem(storageKey(userId), JSON.stringify(sessions));
 }
 
 export function createSession(): Session {

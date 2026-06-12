@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Message, ChatHistoryEntry, Session } from "@/lib/types";
 import { StepTrace, SourceChunk } from "@/components/InfoPanel";
 import { streamQuery, fetchDocuments } from "@/lib/api";
@@ -17,34 +18,35 @@ import ChatPanel from "@/components/ChatPanel";
 import InfoPanel from "@/components/InfoPanel";
 
 export default function Home() {
+  const { userId, getToken } = useAuth();
+
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  // Active session's state (derived + live-streamed)
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistoryEntry[]>([]);
   const [documentFilter, setDocumentFilter] = useState<string[]>([]);
 
-  // Right panel
   const [steps, setSteps] = useState<StepTrace[]>([]);
   const [sources, setSources] = useState<SourceChunk[]>([]);
   const [activeNode, setActiveNode] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  // Documents available in Qdrant
   const [documents, setDocuments] = useState<string[]>([]);
 
   const idRef = useRef(0);
   const lastQuestionRef = useRef<string | null>(null);
 
-  // Init: load sessions + documents
+  // Init: load sessions + documents once userId is ready
   useEffect(() => {
-    const saved = loadSessions();
+    if (!userId) return;
+
+    const saved = loadSessions(userId);
     if (saved.length === 0) {
       const s = createSession();
       const initial = [s];
       setSessions(initial);
-      saveSessions(initial);
+      saveSessions(initial, userId);
       setActiveSessionId(s.id);
     } else {
       setSessions(saved);
@@ -54,24 +56,33 @@ export default function Home() {
       setChatHistory(first.history);
       setDocumentFilter(first.documentFilter);
     }
-    fetchDocuments().then(setDocuments);
-  }, []);
+
+    getToken()
+      .then((token) => fetchDocuments(token))
+      .then(setDocuments);
+  }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshDocuments = useCallback(() => {
-    fetchDocuments().then(setDocuments);
-  }, []);
+    getToken()
+      .then((token) => fetchDocuments(token))
+      .then(setDocuments);
+  }, [getToken]);
 
-  // Switch session
   const handleSelectSession = useCallback(
     (id: string) => {
-      // Save current session first
-      if (activeSessionId) {
+      if (activeSessionId && userId) {
         setSessions((prev) => {
           const current = prev.find((s) => s.id === activeSessionId);
           if (!current) return prev;
-          const updated = { ...current, messages, history: chatHistory, documentFilter, updatedAt: Date.now() };
+          const updated = {
+            ...current,
+            messages,
+            history: chatHistory,
+            documentFilter,
+            updatedAt: Date.now(),
+          };
           const next = upsertSession(prev, updated);
-          saveSessions(next);
+          saveSessions(next, userId);
           return next;
         });
       }
@@ -85,25 +96,30 @@ export default function Home() {
       setSources([]);
       setActiveNode(null);
     },
-    [activeSessionId, sessions, messages, chatHistory, documentFilter]
+    [activeSessionId, userId, sessions, messages, chatHistory, documentFilter],
   );
 
   const handleNewSession = useCallback(() => {
-    // Persist current before creating new
-    if (activeSessionId) {
+    if (activeSessionId && userId) {
       setSessions((prev) => {
         const current = prev.find((s) => s.id === activeSessionId);
         if (!current) return prev;
-        const updated = { ...current, messages, history: chatHistory, documentFilter, updatedAt: Date.now() };
+        const updated = {
+          ...current,
+          messages,
+          history: chatHistory,
+          documentFilter,
+          updatedAt: Date.now(),
+        };
         const next = upsertSession(prev, updated);
-        saveSessions(next);
+        saveSessions(next, userId);
         return next;
       });
     }
     const s = createSession();
     setSessions((prev) => {
       const next = [s, ...prev];
-      saveSessions(next);
+      if (userId) saveSessions(next, userId);
       return next;
     });
     setActiveSessionId(s.id);
@@ -113,13 +129,13 @@ export default function Home() {
     setSteps([]);
     setSources([]);
     setActiveNode(null);
-  }, [activeSessionId, messages, chatHistory, documentFilter]);
+  }, [activeSessionId, userId, messages, chatHistory, documentFilter]);
 
   const handleDeleteSession = useCallback(
     (id: string) => {
       setSessions((prev) => {
         const next = deleteSession(prev, id);
-        saveSessions(next);
+        if (userId) saveSessions(next, userId);
         return next;
       });
       if (id === activeSessionId) {
@@ -134,7 +150,7 @@ export default function Home() {
           } else {
             const s = createSession();
             const fresh = [s];
-            saveSessions(fresh);
+            if (userId) saveSessions(fresh, userId);
             setActiveSessionId(s.id);
             setMessages([]);
             setChatHistory([]);
@@ -144,7 +160,7 @@ export default function Home() {
         });
       }
     },
-    [activeSessionId]
+    [activeSessionId, userId],
   );
 
   const handleDocumentFilterChange = useCallback((filter: string[]) => {
@@ -158,17 +174,22 @@ export default function Home() {
     setSources([]);
     setActiveNode(null);
     lastQuestionRef.current = null;
-    if (activeSessionId) {
+    if (activeSessionId && userId) {
       setSessions((prev) => {
         const current = prev.find((s) => s.id === activeSessionId);
         if (!current) return prev;
-        const updated = { ...current, messages: [], history: [], updatedAt: Date.now() };
+        const updated = {
+          ...current,
+          messages: [],
+          history: [],
+          updatedAt: Date.now(),
+        };
         const next = upsertSession(prev, updated);
-        saveSessions(next);
+        saveSessions(next, userId);
         return next;
       });
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, userId]);
 
   const handleSubmit = useCallback(
     async (question: string) => {
@@ -196,15 +217,21 @@ export default function Home() {
       const newSourceChunks: SourceChunk[] = [];
 
       try {
-        for await (const event of streamQuery(question, chatHistory, documentFilter)) {
+        const token = await getToken();
+        for await (const event of streamQuery(
+          question,
+          chatHistory,
+          documentFilter,
+          token,
+        )) {
           if (event.type === "done") break;
 
           if (event.type === "token" && event.token) {
             finalAnswer += event.token;
             setMessages((prev) =>
               prev.map((m) =>
-                m.id === assistantId ? { ...m, content: finalAnswer } : m
-              )
+                m.id === assistantId ? { ...m, content: finalAnswer } : m,
+              ),
             );
           }
 
@@ -215,11 +242,12 @@ export default function Home() {
             const step: StepTrace = {
               node,
               label: node,
-              subtext: node === "retrieve"
-                ? `${(event.output.documents as unknown[] | undefined)?.length ?? 0} chunks`
-                : node === "grade_documents"
-                ? `graded ${(event.output.documents as unknown[] | undefined)?.length ?? 0} docs`
-                : undefined,
+              subtext:
+                node === "retrieve"
+                  ? `${(event.output.documents as unknown[] | undefined)?.length ?? 0} chunks`
+                  : node === "grade_documents"
+                    ? `graded ${(event.output.documents as unknown[] | undefined)?.length ?? 0} docs`
+                    : undefined,
             };
             newSteps.push(step);
             setSteps([...newSteps]);
@@ -243,38 +271,46 @@ export default function Home() {
         setActiveNode("generate");
         setTimeout(() => setActiveNode(null), 1500);
 
-        // Attach sources to final message
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, sources: currentSources } : m
-          )
+            m.id === assistantId ? { ...m, sources: currentSources } : m,
+          ),
         );
 
-        // Update chat history
         if (finalAnswer) {
-          const newHistory = [...chatHistory, { question, answer: finalAnswer }];
+          const newHistory = [
+            ...chatHistory,
+            { question, answer: finalAnswer },
+          ];
           setChatHistory(newHistory);
 
-          // Persist session
-          if (activeSessionId) {
+          if (activeSessionId && userId) {
             setSessions((prev) => {
               const current = prev.find((s) => s.id === activeSessionId);
               if (!current) return prev;
               const updatedMessages = [
                 ...current.messages,
                 userMsg,
-                { id: assistantId, role: "assistant" as const, content: finalAnswer, sources: currentSources },
+                {
+                  id: assistantId,
+                  role: "assistant" as const,
+                  content: finalAnswer,
+                  sources: currentSources,
+                },
               ];
               const updated: Session = {
                 ...current,
-                title: current.messages.length === 0 ? sessionTitle(question) : current.title,
+                title:
+                  current.messages.length === 0
+                    ? sessionTitle(question)
+                    : current.title,
                 messages: updatedMessages,
                 history: newHistory,
                 documentFilter,
                 updatedAt: Date.now(),
               };
               const next = upsertSession(prev, updated);
-              saveSessions(next);
+              saveSessions(next, userId);
               return next;
             });
           }
@@ -284,19 +320,18 @@ export default function Home() {
           prev.map((m) =>
             m.id === assistantId
               ? { ...m, content: "Error: could not reach the CRAG backend." }
-              : m
-          )
+              : m,
+          ),
         );
       } finally {
         setIsStreaming(false);
       }
     },
-    [chatHistory, documentFilter, activeSessionId]
+    [chatHistory, documentFilter, activeSessionId, userId, getToken],
   );
 
   const handleRegen = useCallback(() => {
     if (!lastQuestionRef.current || isStreaming) return;
-    // Remove the last assistant message before re-submitting
     setMessages((prev) => {
       const last = prev[prev.length - 1];
       if (last?.role === "assistant") return prev.slice(0, -1);
@@ -305,6 +340,15 @@ export default function Home() {
     setChatHistory((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
     handleSubmit(lastQuestionRef.current);
   }, [isStreaming, handleSubmit]);
+
+  // Don't render until Clerk has resolved the user
+  if (!userId) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-[#09090f]">
+        <span className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#09090f]">

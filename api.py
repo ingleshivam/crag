@@ -12,13 +12,14 @@ if os.environ.get("LANGSMITH_API_KEY"):
     os.environ.setdefault("LANGCHAIN_API_KEY", os.environ["LANGSMITH_API_KEY"])
     os.environ.setdefault("LANGCHAIN_PROJECT", "crag")
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
 
 from graph import app as crag_app
+from auth import get_current_user
 
 COLLECTION_NAME = "crag"
 NEEDS_PARSING = {".pdf", ".docx", ".pptx", ".html"}
@@ -98,7 +99,10 @@ def stream_crag(question: str, chat_history: list, document_filter: list):
 
 
 @fastapi_app.post("/api/query")
-async def query(request: QueryRequest):
+async def query(
+    request: QueryRequest,
+    _user_id: str = Depends(get_current_user),
+):
     return StreamingResponse(
         stream_crag(request.question, request.chat_history, request.document_filter),
         media_type="text/event-stream",
@@ -107,7 +111,7 @@ async def query(request: QueryRequest):
 
 
 @fastapi_app.get("/api/documents")
-async def list_documents():
+async def list_documents(_user_id: str = Depends(get_current_user)):
     """Return distinct source filenames present in the Qdrant collection."""
     try:
         if not qdrant_client.collection_exists(COLLECTION_NAME):
@@ -161,7 +165,10 @@ async def _stream_upload(file: UploadFile):
 
 
 @fastapi_app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    _user_id: str = Depends(get_current_user),
+):
     return StreamingResponse(
         _stream_upload(file),
         media_type="text/event-stream",

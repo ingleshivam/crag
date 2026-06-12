@@ -2,14 +2,19 @@ import { StreamEvent, ChatHistoryEntry } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+function authHeaders(token: string | null): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function* streamQuery(
   question: string,
   chatHistory: ChatHistoryEntry[],
-  documentFilter: string[]
+  documentFilter: string[],
+  token: string | null
 ): AsyncGenerator<StreamEvent> {
   const response = await fetch(`${API_BASE}/api/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify({
       question,
       chat_history: chatHistory,
@@ -41,12 +46,16 @@ export async function* streamQuery(
   }
 }
 
-export async function fetchDocuments(): Promise<string[]> {
+export async function fetchDocuments(token: string | null): Promise<string[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/documents`);
+    const res = await fetch(`${API_BASE}/api/documents`, {
+      headers: authHeaders(token),
+    });
     const data = await res.json();
     return (data.documents as string[]) ?? [];
   } catch {
     return [];
   }
 }
+
+export { authHeaders, API_BASE };
