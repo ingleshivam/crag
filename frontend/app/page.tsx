@@ -341,7 +341,6 @@ export default function Home() {
     handleSubmit(lastQuestionRef.current);
   }, [isStreaming, handleSubmit]);
 
-  // Don't render until Clerk has resolved the user
   if (!userId) {
     return (
       <div className="flex h-screen items-center justify-center bg-slate-50 dark:bg-[#09090f]">
@@ -352,7 +351,6 @@ export default function Home() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50 dark:bg-[#09090f]">
-      {/* Left sidebar */}
       <Sidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
@@ -365,7 +363,6 @@ export default function Home() {
         onUploadComplete={refreshDocuments}
       />
 
-      {/* Center chat */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-[#09090f]">
         <ChatPanel
           messages={messages}
@@ -377,7 +374,6 @@ export default function Home() {
         />
       </div>
 
-      {/* Right info panel */}
       <div className="w-[300px] flex-shrink-0 flex flex-col overflow-hidden bg-white dark:bg-[#0f0f1a] border-l border-gray-200 dark:border-gray-800">
         <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
           <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">
