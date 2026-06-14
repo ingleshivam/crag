@@ -22,28 +22,32 @@ interface Props {
 }
 
 const NODE_COLORS: Record<string, string> = {
-  retrieve:        "bg-blue-500",
+  retrieve: "bg-blue-500",
   grade_documents: "bg-amber-500",
   transform_query: "bg-orange-500",
-  generate:        "bg-emerald-500",
+  generate: "bg-emerald-500",
 };
 
 const NODE_LABELS: Record<string, string> = {
-  retrieve:        "Retrieve",
+  retrieve: "Retrieve",
   grade_documents: "Grade Documents",
   transform_query: "Rewrite Query",
-  generate:        "Generate",
-  web_search:      "Web Search",
+  generate: "Generate",
+  web_search: "Web Search",
 };
 
-export default function InfoPanel({ activeNode, steps, sources, isStreaming }: Props) {
+export default function InfoPanel({
+  activeNode,
+  steps,
+  sources,
+  isStreaming,
+}: Props) {
   const [graphOpen, setGraphOpen] = useState(true);
   const [stepsOpen, setStepsOpen] = useState(true);
   const [sourcesOpen, setSourcesOpen] = useState(true);
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
-      {/* Pipeline graph section */}
       <Collapsible
         label="Pipeline"
         open={graphOpen}
@@ -55,15 +59,22 @@ export default function InfoPanel({ activeNode, steps, sources, isStreaming }: P
         </div>
       </Collapsible>
 
-      {/* Steps trace */}
       <Collapsible
         label="Steps"
         open={stepsOpen}
         onToggle={() => setStepsOpen((v) => !v)}
-        badge={steps.length ? <span className="text-[10px] text-gray-400 dark:text-gray-500">{steps.length}</span> : null}
+        badge={
+          steps.length ? (
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              {steps.length}
+            </span>
+          ) : null
+        }
       >
         {steps.length === 0 ? (
-          <p className="px-4 pb-3 text-xs text-gray-400 dark:text-gray-600 italic">No steps yet</p>
+          <p className="px-4 pb-3 text-xs text-gray-400 dark:text-gray-600 italic">
+            No steps yet
+          </p>
         ) : (
           <div className="px-3 pb-3 space-y-1.5">
             {steps.map((step, i) => (
@@ -88,20 +99,25 @@ export default function InfoPanel({ activeNode, steps, sources, isStreaming }: P
             {isStreaming && (
               <div className="flex items-center gap-2.5 opacity-60">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0" />
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">Generating…</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                  Generating…
+                </p>
               </div>
             )}
           </div>
         )}
       </Collapsible>
 
-      {/* Sources */}
       {sources.length > 0 && (
         <Collapsible
           label="Sources"
           open={sourcesOpen}
           onToggle={() => setSourcesOpen((v) => !v)}
-          badge={<span className="text-[10px] text-gray-400 dark:text-gray-500">{sources.length}</span>}
+          badge={
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
+              {sources.length}
+            </span>
+          }
         >
           <div className="px-3 pb-3 space-y-2">
             {sources.map((chunk, i) => (
@@ -162,11 +178,23 @@ function SourceCard({ chunk }: { chunk: SourceChunk }) {
   return (
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       <div className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-50 dark:bg-gray-800/60">
-        <svg className="w-3 h-3 text-gray-400 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" strokeLinecap="round" />
+        <svg
+          className="w-3 h-3 text-gray-400 flex-shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path
+            d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"
+            strokeLinecap="round"
+          />
           <path d="M14 2v6h6" strokeLinecap="round" />
         </svg>
-        <span className="text-[10px] font-medium text-gray-600 dark:text-gray-400 truncate flex-1" title={chunk.source}>
+        <span
+          className="text-[10px] font-medium text-gray-600 dark:text-gray-400 truncate flex-1"
+          title={chunk.source}
+        >
           {chunk.source}
         </span>
       </div>

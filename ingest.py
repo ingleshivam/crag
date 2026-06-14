@@ -15,7 +15,7 @@ load_dotenv()
 COLLECTION_NAME = "crag"
 EMBEDDING_MODEL = "voyage-3-lite"
 VECTOR_SIZE = 512
-CHUNK_SIZE = 1200   # larger chunks keep definitions/formulas intact
+CHUNK_SIZE = 1200   
 CHUNK_OVERLAP = 200
 EMBED_BATCH = 128
 UPSERT_BATCH = 100
@@ -36,14 +36,12 @@ except Exception:
     _sparse_model = None
     HYBRID = False
 
-# pymupdf4llm preserves LaTeX math blocks, tables, and headings from PDFs
 try:
     import pymupdf4llm
     PYMUPDF4LLM = True
 except ImportError:
     PYMUPDF4LLM = False
 
-# Math/structure-aware separators: keep Definition/Theorem/Equation blocks together
 _splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
@@ -67,7 +65,6 @@ def load_pdf(path: Path) -> str:
     """Convert PDF to markdown, preserving math notation and tables."""
     if PYMUPDF4LLM:
         return pymupdf4llm.to_markdown(str(path))
-    # Fallback: plain text extraction via PyMuPDF (fitz)
     try:
         import fitz
         doc = fitz.open(str(path))

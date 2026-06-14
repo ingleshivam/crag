@@ -11,7 +11,6 @@ from qdrant_client.models import (
 )
 from state import GraphState
 
-# Hybrid BM25 sparse embeddings via fastembed (optional — falls back to dense-only)
 try:
     from fastembed import SparseTextEmbedding as _SparseModel
     _sparse_model = _SparseModel(model_name="Qdrant/bm25")
@@ -65,7 +64,6 @@ def _ensure_collection() -> None:
             )
             print(f"Created Qdrant collection: {COLLECTION_NAME}")
 
-        # Ensure a keyword payload index on "source" for document filtering
         qdrant_client.create_payload_index(
             collection_name=COLLECTION_NAME,
             field_name="source",
@@ -93,7 +91,6 @@ def get_sparse_embedding(text: str) -> SparseVector:
     return SparseVector(indices=result.indices.tolist(), values=result.values.tolist())
 
 
-# --- Grader ---
 class GradeDocuments(BaseModel):
     """Binary score for relevance check on retrieved documents."""
     binary_score: str = Field(description="Documents are relevant to the question, 'yes' or 'no'")
@@ -110,7 +107,6 @@ grader_prompt = ChatPromptTemplate.from_messages([
 ])
 retrieval_grader = grader_prompt | structured_llm_grader
 
-# --- Query Rewriter ---
 rewrite_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are a query rewriter. Optimize the user query for vector database search. "
@@ -119,7 +115,6 @@ rewrite_prompt = ChatPromptTemplate.from_messages([
 ])
 query_rewriter = rewrite_prompt | llm
 
-# --- Generator ---
 gen_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are an assistant for question-answering tasks. "
@@ -134,7 +129,6 @@ gen_prompt = ChatPromptTemplate.from_messages([
 ])
 generator = gen_prompt | llm
 
-# Stricter re-generation prompt used after a faithfulness failure
 strict_gen_prompt = ChatPromptTemplate.from_messages([
     ("system",
      "You are a precise assistant. Answer ONLY from the provided context.\n\n"
@@ -150,7 +144,6 @@ strict_gen_prompt = ChatPromptTemplate.from_messages([
 ])
 strict_generator = strict_gen_prompt | llm
 
-# --- Faithfulness Grader ---
 class GradeFaithfulness(BaseModel):
     """Check whether the generated answer is faithful to the source context."""
     faithful: bool = Field(
@@ -178,8 +171,6 @@ faithfulness_prompt = ChatPromptTemplate.from_messages([
 ])
 faithfulness_grader = faithfulness_prompt | llm.with_structured_output(GradeFaithfulness)
 
-
-# --- Node Functions ---
 
 def retrieve(state: GraphState):
     print("---NODE: RETRIEVING DOCUMENTS---")
@@ -226,7 +217,6 @@ def retrieve(state: GraphState):
     texts = [hit.payload.get("text", "") for hit in results.points]
     sources = [hit.payload.get("source", "") for hit in results.points]
 
-    # Rerank with Voyage AI rerank-2
     if texts:
         try:
             reranked = vo.rerank(question, texts, model=RERANK_MODEL, top_k=min(5, len(texts)))
@@ -238,7 +228,6 @@ def retrieve(state: GraphState):
             texts = texts[:5]
             sources = sources[:5]
 
-    # Deduplicate sources while preserving order
     seen, unique_sources = set(), []
     for s in sources:
         if s not in seen:
@@ -287,7 +276,6 @@ def generate(state: GraphState):
     chat_history = state.get("chat_history") or []
     faithfulness_attempts = state.get("faithfulness_attempts", 0)
 
-    # Format last 3 conversation turns for context
     history_text = ""
     for turn in chat_history[-3:]:
         q = turn.get("question", "")
@@ -299,7 +287,6 @@ def generate(state: GraphState):
 
     context = "\n\n".join(documents) if documents else "No relevant context found."
 
-    # Use the stricter prompt if this is a faithfulness re-attempt
     chain = strict_generator if faithfulness_attempts > 0 else generator
     if faithfulness_attempts > 0:
         print("   - Using strict prompt (faithfulness re-attempt)")

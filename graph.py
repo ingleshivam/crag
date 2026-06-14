@@ -15,7 +15,7 @@ workflow.add_node("check_faithfulness", check_faithfulness)
 workflow.add_edge(START, "retrieve")
 workflow.add_edge("retrieve", "grade_documents")
 workflow.add_edge("transform_query", "retrieve")
-workflow.add_edge("generate", "check_faithfulness")  # always check after generating
+workflow.add_edge("generate", "check_faithfulness") 
 
 
 def decide_to_generate(state: GraphState):
@@ -42,7 +42,6 @@ def decide_faithful(state: GraphState):
         print("---DECISION: FAITHFUL -> END---")
         return END
     if attempts >= 2:
-        # Already re-tried once — accept the result rather than looping
         print("---DECISION: MAX FAITHFULNESS TRIES REACHED -> END---")
         return END
 

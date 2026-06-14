@@ -72,7 +72,10 @@ export default function DocumentUpload({ onUploadComplete }: Props) {
       for await (const event of streamUpload(file)) {
         setStatus(event.status as Status);
         setMessage(event.message);
-        if (event.status === "done") { onUploadComplete?.(); break; }
+        if (event.status === "done") {
+          onUploadComplete?.();
+          break;
+        }
         if (event.status === "error") break;
       }
     } catch {
@@ -95,10 +98,11 @@ export default function DocumentUpload({ onUploadComplete }: Props) {
       <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
         Upload Document
       </h2>
-
-      {/* Drop zone */}
       <div
-        onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
@@ -113,30 +117,40 @@ export default function DocumentUpload({ onUploadComplete }: Props) {
           type="file"
           accept=".pdf,.docx,.pptx,.html,.txt,.md"
           className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) pickFile(f); }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) pickFile(f);
+          }}
         />
         {file ? (
           <>
-            <p className="text-sm text-gray-200 font-medium truncate">{file.name}</p>
-            <p className="text-xs text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+            <p className="text-sm text-gray-200 font-medium truncate">
+              {file.name}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              {(file.size / 1024).toFixed(1)} KB
+            </p>
           </>
         ) : (
           <>
-            <p className="text-sm text-gray-400">Drop a file or click to browse</p>
-            <p className="text-xs text-gray-600 mt-1">PDF · DOCX · PPTX · HTML · TXT · MD</p>
+            <p className="text-sm text-gray-400">
+              Drop a file or click to browse
+            </p>
+            <p className="text-xs text-gray-600 mt-1">
+              PDF · DOCX · PPTX · HTML · TXT · MD
+            </p>
           </>
         )}
       </div>
 
-      {/* Status banner */}
       {status !== "idle" && message && (
         <div
           className={`flex items-center gap-2 rounded-lg px-4 py-3 text-xs ${
             status === "done"
               ? "bg-emerald-900/30 text-emerald-400"
               : status === "error"
-              ? "bg-red-900/30 text-red-400"
-              : "bg-gray-800 text-gray-300"
+                ? "bg-red-900/30 text-red-400"
+                : "bg-gray-800 text-gray-300"
           }`}
         >
           {busy && (
@@ -148,26 +162,39 @@ export default function DocumentUpload({ onUploadComplete }: Props) {
         </div>
       )}
 
-      {/* Progress steps */}
       {status !== "idle" && (
         <ol className="flex flex-col gap-1.5 text-xs">
           {(["saving", "parsing", "ingesting", "done"] as const).map((step) => {
             const stepOrder = ["saving", "parsing", "ingesting", "done"];
-            const currentIdx = stepOrder.indexOf(status === "error" ? "saving" : status);
+            const currentIdx = stepOrder.indexOf(
+              status === "error" ? "saving" : status,
+            );
             const stepIdx = stepOrder.indexOf(step);
             const done = stepIdx < currentIdx || status === "done";
-            const active = stepIdx === currentIdx && status !== "done" && status !== "error";
+            const active =
+              stepIdx === currentIdx && status !== "done" && status !== "error";
             return (
-              <li key={step} className={`flex items-center gap-2 ${done ? "text-emerald-400" : active ? "text-gray-200" : "text-gray-600"}`}>
-                <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${done ? "bg-emerald-500" : active ? "bg-gray-300 animate-pulse" : "bg-gray-700"}`} />
-                {{ saving: "Save file", parsing: "Parse to markdown (LlamaCloud)", ingesting: "Embed & upload to Qdrant", done: "Complete" }[step]}
+              <li
+                key={step}
+                className={`flex items-center gap-2 ${done ? "text-emerald-400" : active ? "text-gray-200" : "text-gray-600"}`}
+              >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${done ? "bg-emerald-500" : active ? "bg-gray-300 animate-pulse" : "bg-gray-700"}`}
+                />
+                {
+                  {
+                    saving: "Save file",
+                    parsing: "Parse to markdown (LlamaCloud)",
+                    ingesting: "Embed & upload to Qdrant",
+                    done: "Complete",
+                  }[step]
+                }
               </li>
             );
           })}
         </ol>
       )}
 
-      {/* Buttons */}
       <div className="flex gap-2">
         <button
           onClick={handleUpload}

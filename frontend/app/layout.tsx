@@ -7,12 +7,15 @@ export const metadata: Metadata = {
   description: "Corrective Retrieval-Augmented Generation pipeline",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <ClerkProvider>
       <html lang="en" suppressHydrationWarning>
         <head>
-          {/* Runs synchronously before paint — prevents flash of wrong theme */}
           <script
             dangerouslySetInnerHTML={{
               __html: `try{var t=localStorage.getItem('crag-theme')||'dark';document.documentElement.classList.toggle('dark',t==='dark')}catch(e){document.documentElement.classList.add('dark')}`,

@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* CSS variables used inside SVG elements (Tailwind dark: can't reach those) */
 :root {
   --pipe-edge: #d1d5db;
   --pipe-label: #9ca3af;
@@ -14,7 +13,6 @@
   --pipe-node-bg: #111827;
 }
 
-/* Modern scrollbar */
 * {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
@@ -43,13 +41,12 @@
   background: #475569;
 }
 
-/* Smooth theme transition */
 *, *::before, *::after {
   transition-property: background-color, border-color, color;
   transition-duration: 150ms;
   transition-timing-function: ease;
 }
-/* Except animations */
+
 [class*="animate-"], [class*="transition-"] {
   transition: none;
 }
